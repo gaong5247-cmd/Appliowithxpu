@@ -42,6 +42,11 @@ jobs:
         run: |
           python scripts/test_weight_key_remap.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test physical-XPU diagnostic subprocess logging on Windows
+        shell: pwsh
+        run: |
+          python scripts/test_xpu_diagnostics.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test training worker failure detection and atomic config updates
         shell: pwsh
         run: |
@@ -65,6 +70,7 @@ jobs:
             run-xpu-check.bat
             run-xpu-one-epoch.bat
             run-xpu-feature-check.bat
+            run-xpu-validate.bat
             UPSTREAM_README.md
             README.md
             UPSTREAM_COMMIT
