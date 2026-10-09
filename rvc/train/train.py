@@ -411,20 +411,39 @@ def run(
     elif rank == 0 and train_dtype == torch.float16:
         print("Using Float16 for training.")
 
-    # Load checkpoint if available
+    # Resume only from a complete, readable matching G/D checkpoint pair.
+    # A corrupt or mismatched checkpoint must NEVER silently reset 200 epochs.
     scaler_dict = {}
-    try:
-        print("Starting training...")
-        _, _, _, epoch_str, scaler_dict = load_checkpoint(
-            latest_checkpoint_path(experiment_dir, "D_*.pth"), net_d, optim_d
+    g_checkpoint = latest_checkpoint_path(experiment_dir, "G_*.pth")
+    d_checkpoint = latest_checkpoint_path(experiment_dir, "D_*.pth")
+    if bool(g_checkpoint) != bool(d_checkpoint):
+        raise RuntimeError(
+            "Cannot resume XPU training: only one G/D checkpoint was found. "
+            "Restore its matching checkpoint or back up the run and explicitly "
+            "start fresh, otherwise previous training progress could be lost."
         )
-        _, _, _, epoch_str, _ = load_checkpoint(
-            latest_checkpoint_path(experiment_dir, "G_*.pth"), net_g, optim_g
-        )
-        epoch_str += 1
-        global_step = (epoch_str - 1) * len(train_loader)
 
-    except Exception as e:
+    if g_checkpoint is not None:
+        try:
+            _, _, _, d_epoch, scaler_dict = load_checkpoint(
+                d_checkpoint, net_d, optim_d
+            )
+            _, _, _, g_epoch, _ = load_checkpoint(g_checkpoint, net_g, optim_g)
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not resume saved G/D checkpoints. Existing files are "
+                "preserved; no fresh training has been started. "
+                f"G={g_checkpoint}, D={d_checkpoint}"
+            ) from exc
+        if g_epoch != d_epoch:
+            raise RuntimeError(
+                f"G/D epoch mismatch: G={g_epoch}, D={d_epoch}. "
+                "Refusing to resume from mismatched weights."
+            )
+        epoch_str = g_epoch + 1
+        global_step = (epoch_str - 1) * len(train_loader)
+        print(f"Resuming RVC XPU training at epoch {epoch_str}")
+    else:
         epoch_str = 1
         global_step = 0
 
