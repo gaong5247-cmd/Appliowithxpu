@@ -669,11 +669,11 @@ def train_tab():
             batch_size = gr.Slider(
                 1,
                 64,
-                4,
+                2,
                 step=1,
-                label=i18n("Batch Size"),
+                label=i18n("Batch Size (Intel XPU)"),
                 info=i18n(
-                    "It's advisable to align it with the available VRAM of your GPU. A setting of 4 offers improved accuracy but slower processing, while 8 provides faster and standard results."
+                    "Intel Arc iGPU: start with batch 2 for stability, increase to 4 only if XPU memory use and one-epoch tests are stable. Shared system memory is not equivalent to dedicated VRAM."
                 ),
                 interactive=True,
             )
