@@ -726,7 +726,7 @@ class FCPE(nn.Module):
 class FCPEInfer:
     def __init__(self, model_path, device=None, dtype=torch.float32):
         if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "xpu:0" if hasattr(torch, "xpu") and torch.xpu.is_available() else (_ for _ in ()).throw(RuntimeError("Intel XPU required for FCPE"))
         self.device = device
         ckpt = torch.load(
             model_path, map_location=torch.device(self.device), weights_only=True
@@ -849,7 +849,7 @@ class FCPEF0Predictor(F0Predictor):
         self.hop_length = hop_length
         self.f0_min = f0_min
         self.f0_max = f0_max
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or ("xpu:0" if torch.xpu.is_available() else (_ for _ in ()).throw(RuntimeError("Intel XPU required for FCPE")))
         self.threshold = threshold
         self.sample_rate = sample_rate
         self.dtype = dtype
