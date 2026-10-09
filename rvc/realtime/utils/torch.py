@@ -271,7 +271,7 @@ class IndexWrapper:
                     self.faiss_cpu = True
                     self.b_norms = None
 
-                    torch.xpu.empty_cache() if hasattr(torch, "xpu") and torch.xpu.is_available() else None
+                    # Keep cached XPU allocations for low-latency realtime conversion.
                     return self.search(query, k)
             else:
                 npy = query.cpu().numpy()
