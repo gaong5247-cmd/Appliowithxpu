@@ -40,6 +40,28 @@ def load_rvc_voice_weights(model, weights):
     an incompatible architecture.
     """
     converted = normalize_rvc_weight_keys(weights)
+    # Validate BEFORE modifying any model parameters. Loading with
+    # strict=False and checking only afterwards risks partially replacing
+    # a live voice model when the checkpoint is from another architecture.
+    expected = model.state_dict()
+    missing_before = sorted(set(expected) - set(converted))
+    unexpected_before = sorted(set(converted) - set(expected))
+    missing = [k for k in missing_before if not k.startswith("enc_q.")]
+    unexpected = [k for k in unexpected_before if not k.startswith("enc_q.")]
+    wrong_shapes = [
+        (k, tuple(converted[k].shape), tuple(expected[k].shape))
+        for k in set(expected).intersection(converted)
+        if hasattr(converted[k], "shape")
+        and tuple(converted[k].shape) != tuple(expected[k].shape)
+    ]
+    if missing or unexpected or wrong_shapes:
+        raise RuntimeError(
+            "RVC voice checkpoint incompatible with this model architecture: "
+            f"{len(missing)} missing, {len(unexpected)} unexpected, "
+            f"{len(wrong_shapes)} shape mismatches; "
+            f"missing example={missing[:8]}; unexpected example={unexpected[:8]}; "
+            f"shapes example={wrong_shapes[:4]}"
+        )
     result = model.load_state_dict(converted, strict=False)
     missing = [name for name in result.missing_keys if not name.startswith("enc_q.")]
     unexpected = [name for name in result.unexpected_keys if not name.startswith("enc_q.")]
