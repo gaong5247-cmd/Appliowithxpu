@@ -35,6 +35,11 @@ jobs:
         run: |
           python scripts/verify_xpu_port.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test training worker failure detection and atomic config updates
+        shell: pwsh
+        run: |
+          python scripts/test_training_process.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package ported complete source
         uses: actions/upload-artifact@v4
         with:
@@ -50,6 +55,8 @@ jobs:
             requirements.txt
             run-install.bat
             run-applio.bat
+            run-xpu-check.bat
+            UPSTREAM_README.md
             README.md
             UPSTREAM_COMMIT
           retention-days: 14
