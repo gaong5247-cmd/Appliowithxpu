@@ -4,6 +4,15 @@ on:
   push:
     paths:
       - '.github/workflows/dependency-check.yml'
+      - 'requirements.txt'
+      - 'core.py'
+      - 'rvc/train/**'
+      - 'rvc/infer/**'
+      - 'rvc/realtime/**'
+      - 'rvc/lib/weights.py'
+      - 'rvc/lib/algorithm/**'
+      - 'scripts/test_*.py'
+      - 'scripts/xpu_one_epoch.py'
 permissions:
   contents: read
 concurrency:
@@ -53,4 +62,6 @@ jobs:
           python scripts/test_core_training_result.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test_export_contract.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test_rvc_weight_loading.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
