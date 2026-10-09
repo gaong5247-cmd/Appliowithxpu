@@ -1,39 +1,59 @@
-# Standalone Windows installer. No CUDA/CPU PyTorch fallback.
+# Standalone Windows Intel Arc installer. Never installs CUDA/CPU-only Torch.
+# PyTorch 2.14 + XPU: https://docs.pytorch.org/docs/2.14/notes/get_start_xpu.html
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $root
 
-if (!(Test-Path ".venv-xpu\Scripts\python.exe")) {
+if (-not (Test-Path ".venv-xpu\Scripts\python.exe")) {
+    if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
+        throw "Python launcher (py) not found. Install 64-bit Python 3.12 from https://www.python.org/downloads/"
+    }
     $created = $false
     foreach ($version in @("3.12", "3.11")) {
-        if (Get-Command py -ErrorAction SilentlyContinue) {
-            & py "-$version" -c "import sys; print(sys.version)" 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                & py "-$version" -m venv ".venv-xpu"
-                if ($LASTEXITCODE -ne 0) { throw "Failed to create Python venv" }
-                $created = $true
-                break
-            }
+        $valid = $false
+        try {
+            & py "-$version" -c "import sys; assert sys.maxsize > 2**32" *> $null
+            $valid = $LASTEXITCODE -eq 0
+        } catch {
+            $valid = $false
+        }
+        if ($valid) {
+            Write-Host "Creating Python $version XPU environment..."
+            & py "-$version" -m venv ".venv-xpu"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create .venv-xpu" }
+            $created = $true
+            break
         }
     }
-    if (!$created) {
-        throw "Install Python 3.12 from https://www.python.org/downloads/ (including the py launcher), then rerun."
+    if (-not $created) {
+        throw "Install 64-bit Python 3.12 or 3.11 (with py launcher) and rerun."
     }
 }
 $python = Join-Path $root ".venv-xpu\Scripts\python.exe"
-Write-Host "Installing PyTorch XPU for Intel Arc..." -ForegroundColor Cyan
-& $python -m pip install --upgrade pip wheel setuptools
-if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed" }
-& $python -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/xpu
-if ($LASTEXITCODE -ne 0) { throw "XPU PyTorch wheel installation failed. No fallback permitted." }
-& $python -c "import torch; assert torch.xpu.is_available(), 'Intel XPU unavailable'; print('XPU:',torch.xpu.get_device_name(0),torch.__version__)"
-if ($LASTEXITCODE -ne 0) { throw "XPU unavailable. Update Intel Arc Graphics drivers and check Windows 11." }
+& $python -c "import sys; assert (3, 11) <= sys.version_info[:2] <= (3, 12) and sys.maxsize > 2**32"
+if ($LASTEXITCODE -ne 0) { throw "The XPU venv must use 64-bit Python 3.11 or 3.12." }
 
-Write-Host "Installing Applio dependencies (preserving XPU PyTorch)..." -ForegroundColor Cyan
+Write-Host "Installing the exact Intel XPU wheels checked in GitHub Windows CI..." -ForegroundColor Cyan
+& $python -m pip install --upgrade pip wheel setuptools
+if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed." }
+& $python -m pip install "torch==2.14.1+xpu" "torchaudio==2.11.0+xpu" "torchvision==0.29.1+xpu" --index-url https://download.pytorch.org/whl/xpu
+if ($LASTEXITCODE -ne 0) { throw "Intel XPU PyTorch installation failed. No CPU/CUDA fallback." }
+
+& $python -c "import torch; assert torch.xpu.is_available(), 'Intel XPU unavailable'; assert torch.__version__.endswith('+xpu'); print('Intel GPU:',torch.xpu.get_device_name(0), 'Torch:',torch.__version__)"
+if ($LASTEXITCODE -ne 0) {
+    throw "XPU unavailable. Install Intel WHQL driver 32.0.101.8801 or newer, confirm Windows 11 and restart."
+}
+
+Write-Host "Installing remaining Applio packages..." -ForegroundColor Cyan
 & $python -m pip install -r requirements.txt
-if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
-& $python -c "import torch; assert torch.xpu.is_available(); print('Confirmed',torch.__version__)"
-if ($LASTEXITCODE -ne 0) { throw "Dependencies broke PyTorch XPU" }
+if ($LASTEXITCODE -ne 0) { throw "Applio dependency installation failed." }
+& $python -m pip check
+if ($LASTEXITCODE -ne 0) { throw "Conflicting dependencies detected." }
+
+& $python -c "import torch; assert torch.__version__ == '2.14.1+xpu' and torch.xpu.is_available(); print('XPU PyTorch retained:',torch.__version__)"
+if ($LASTEXITCODE -ne 0) { throw "A dependency replaced or disabled XPU PyTorch." }
+
+Write-Host "Running actual Intel GPU operator diagnostics..." -ForegroundColor Cyan
 & $python scripts/xpu_smoke.py
-if ($LASTEXITCODE -ne 0) { throw "XPU smoke test failed" }
-Write-Host "XPU environment ready. Launch with run-applio.bat" -ForegroundColor Green
+if ($LASTEXITCODE -ne 0) { throw "XPU operator smoke test failed. See the first exception above." }
+Write-Host "Installer complete. Validate the RVC model with run-xpu-check.bat." -ForegroundColor Green
