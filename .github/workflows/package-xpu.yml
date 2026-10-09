@@ -56,6 +56,7 @@ jobs:
             run-install.bat
             run-applio.bat
             run-xpu-check.bat
+            run-xpu-one-epoch.bat
             UPSTREAM_README.md
             README.md
             UPSTREAM_COMMIT
