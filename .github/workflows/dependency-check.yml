@@ -6,6 +6,9 @@ on:
       - '.github/workflows/dependency-check.yml'
 permissions:
   contents: read
+concurrency:
+  group: xpu-windows-dependencies
+  cancel-in-progress: true
 jobs:
   dependencies:
     runs-on: windows-latest
@@ -15,6 +18,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Install Intel XPU PyTorch wheel
         shell: pwsh
         run: |
