@@ -29,6 +29,7 @@ from rvc.infer.pipeline import Pipeline as VC
 from rvc.lib.utils import load_audio_infer, load_embedding
 from rvc.lib.tools.split_audio import process_audio, merge_audio
 from rvc.lib.algorithm.synthesizers import Synthesizer
+from rvc.lib.weights import load_rvc_voice_weights
 from rvc.configs.config import Config
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -509,7 +510,7 @@ class VoiceConverter:
                 vocoder=self.vocoder,
             )
             del self.net_g.enc_q
-            self.net_g.load_state_dict(self.cpt["weight"], strict=False)
+            load_rvc_voice_weights(self.net_g, self.cpt["weight"])
             self.net_g = self.net_g.to(self.config.device).float()
             self.net_g.eval()
 
