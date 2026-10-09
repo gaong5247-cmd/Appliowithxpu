@@ -505,8 +505,7 @@ class RMVPE0Predictor:
         audio = torch.from_numpy(audio).float().to(self.device).unsqueeze(0)
         mel = self.mel_extractor(audio, center=True)
         del audio
-        with torch.no_grad():
-            torch.cuda.empty_cache()
+        # Preserve the XPU allocator cache between pitch extraction calls.
         hidden = self.mel2hidden(mel)
         hidden = hidden.squeeze(0).cpu().numpy()
         f0 = self.decode(hidden, thred=thred)
