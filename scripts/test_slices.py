@@ -2,6 +2,9 @@
 Host CPU tests check numerical/gradient equivalence without claiming XPU speed.
 """
 import torch
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rvc.lib.algorithm.commons import slice_segments
 
 
