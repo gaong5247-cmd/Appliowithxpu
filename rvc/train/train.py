@@ -630,8 +630,16 @@ def train_and_evaluate(
         data_iterator = enumerate(train_loader)
 
     epoch_recorder = EpochRecorder()
+    # Gradient norm is diagnostic only, not needed for optimizer correctness.
+    # Sampling avoids dozens of reduction kernels per RVC training batch.
+    grad_log_interval = max(1, int(os.getenv("APPLIO_XPU_GRAD_LOG_INTERVAL", "10")))
     with tqdm(total=len(train_loader), leave=False) as pbar:
-        for batch_idx, info in data_iterator:
+        for batch_position, (batch_idx, info) in enumerate(data_iterator):
+            measure_grads = (
+                (global_step + 1) % grad_log_interval == 0
+                or (global_step + 1) % 50 == 0
+                or batch_position == len(train_loader) - 1
+            )
             if not (cache_data_in_gpu and os.getenv("APPLIO_XPU_CACHE", "0") == "1"):
                 info = [tensor.to(device, non_blocking=True) for tensor in info]
             # Else cached tensors are already resident on XPU.
@@ -678,11 +686,11 @@ def train_and_evaluate(
                 if train_dtype == torch.float16:
                     scaler.scale(loss_disc).backward()
                     scaler.unscale_(optim_d)
-                    grad_norm_d = commons.grad_norm(net_d.parameters())
+                    grad_norm_d = commons.grad_norm(net_d.parameters()) if measure_grads else None
                     scaler.step(optim_d)
                 else:
                     loss_disc.backward()
-                    grad_norm_d = commons.grad_norm(net_d.parameters())
+                    grad_norm_d = commons.grad_norm(net_d.parameters()) if measure_grads else None
                     optim_d.step()
 
             net_d.requires_grad_(False)
@@ -732,12 +740,12 @@ def train_and_evaluate(
             if train_dtype == torch.float16:
                 scaler.scale(loss_gen_all).backward()
                 scaler.unscale_(optim_g)
-                grad_norm_g = commons.grad_norm(net_g.parameters())
+                grad_norm_g = commons.grad_norm(net_g.parameters()) if measure_grads else None
                 scaler.step(optim_g)
                 scaler.update()
             else:
                 loss_gen_all.backward()
-                grad_norm_g = commons.grad_norm(net_g.parameters())
+                grad_norm_g = commons.grad_norm(net_g.parameters()) if measure_grads else None
                 optim_g.step()
 
             net_d.requires_grad_(True)
@@ -745,8 +753,9 @@ def train_and_evaluate(
             global_step += 1
 
             # queue for rolling losses over 50 steps
-            avg_losses["grad_d_50"].append(grad_norm_d)
-            avg_losses["grad_g_50"].append(grad_norm_g)
+            if measure_grads:
+                avg_losses["grad_d_50"].append(grad_norm_d)
+                avg_losses["grad_g_50"].append(grad_norm_g)
             avg_losses["disc_loss_50"].append(loss_disc.detach())
             avg_losses["adv_loss_50"].append(loss_gen.detach())
             avg_losses["fm_loss_50"].append(loss_fm.detach())
