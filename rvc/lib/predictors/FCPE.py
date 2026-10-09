@@ -1,3 +1,4 @@
+from rvc.configs.config import require_xpu
 from typing import Union
 
 import torch.nn.functional as F
@@ -726,7 +727,7 @@ class FCPE(nn.Module):
 class FCPEInfer:
     def __init__(self, model_path, device=None, dtype=torch.float32):
         if device is None:
-            device = "xpu:0" if hasattr(torch, "xpu") and torch.xpu.is_available() else (_ for _ in ()).throw(RuntimeError("Intel XPU required for FCPE"))
+            device = str(require_xpu(0))
         self.device = device
         ckpt = torch.load(
             model_path, map_location="cpu", weights_only=True
@@ -769,7 +770,7 @@ class Wav2Mel:
         self.sample_rate = args.mel.sampling_rate
         self.hop_size = args.mel.hop_size
         if device is None:
-            device = "xpu:0" if hasattr(torch, "xpu") and torch.xpu.is_available() else (_ for _ in ()).throw(RuntimeError("Intel XPU required for FCPE"))
+            device = str(require_xpu(0))
         self.device = device
         self.dtype = dtype
         self.stft = STFT(
