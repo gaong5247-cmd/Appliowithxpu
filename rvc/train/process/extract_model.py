@@ -50,10 +50,15 @@ def extract_model(
                 speakers_id = data.get("speakers_id", 1)
         else:
             dataset_length = None
+            embedder_model = None
+            speakers_id = 1
 
-        with open(
-            os.path.join(now_dir, "assets", "config.json"), "r", encoding="utf-8"
-        ) as f:
+        # CLI training and hardware diagnostics must work even when app.py
+        # has not created the user-specific config.json yet.
+        app_config = os.path.join(now_dir, "assets", "config.json")
+        if not os.path.isfile(app_config):
+            app_config = os.path.join(now_dir, "assets", "config_template.json")
+        with open(app_config, "r", encoding="utf-8") as f:
             data = json.load(f)
             model_author = data.get("model_author", None)
 
@@ -113,4 +118,6 @@ def extract_model(
         print(f"Saved model '{model_path}' (epoch {epoch} and step {step})")
 
     except Exception as error:
+        # Never let a 200-epoch run claim success if the inference .pth export failed.
         print(f"An error occurred extracting the model: {error}")
+        raise
