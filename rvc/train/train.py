@@ -636,6 +636,9 @@ def train_and_evaluate(
     net_d.train()
 
     use_amp = train_dtype in (torch.bfloat16, torch.float16)
+    # torch.autocast validates XPU precision even when disabled on some
+    # PyTorch versions. FP32 runs with autocast disabled and a legal dtype.
+    amp_dtype = train_dtype if use_amp else torch.bfloat16
 
     # Data caching
     if cache_data_in_gpu and os.getenv("APPLIO_XPU_CACHE", "0") == "1":
@@ -680,7 +683,7 @@ def train_and_evaluate(
             ) = info
 
             with torch.amp.autocast(
-                device_type="xpu", enabled=use_amp, dtype=train_dtype
+                device_type="xpu", enabled=use_amp, dtype=amp_dtype
             ):
                 # Forward pass
                 model_output = net_g(
@@ -699,7 +702,7 @@ def train_and_evaluate(
                     )
             for _ in range(d_step_per_g_step):  # default x1
                 with torch.amp.autocast(
-                    device_type="xpu", enabled=use_amp, dtype=train_dtype
+                    device_type="xpu", enabled=use_amp, dtype=amp_dtype
                 ):
                     y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
                 loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
@@ -718,7 +721,7 @@ def train_and_evaluate(
             net_d.requires_grad_(False)
 
             with torch.amp.autocast(
-                device_type="xpu", enabled=use_amp, dtype=train_dtype
+                device_type="xpu", enabled=use_amp, dtype=amp_dtype
             ):
                 # Generator backward and update
                 _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
@@ -893,7 +896,7 @@ def train_and_evaluate(
 
         if epoch % save_every_epoch == 0:
             with torch.amp.autocast(
-                device_type="xpu", enabled=use_amp, dtype=train_dtype
+                device_type="xpu", enabled=use_amp, dtype=amp_dtype
             ):
                 with torch.no_grad():
                     if hasattr(net_g, "module"):
