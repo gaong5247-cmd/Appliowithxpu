@@ -23,12 +23,14 @@ import torch
 from rvc.configs.config import require_xpu
 
 
-def make_dataset(exp):
-    sr = 24000
+def make_dataset(exp, sample_rate=24000):
+    sr = int(sample_rate)
+    if sr not in (24000, 32000, 40000, 48000):
+        raise ValueError(f"Unsupported sample rate: {sr}")
     for folder in ("sliced_audios", "f0", "f0_voiced", "extracted"):
         (exp / folder).mkdir(parents=True, exist_ok=True)
 
-    config = json.loads((ROOT / "rvc/configs/24000.json").read_text(encoding="utf-8"))
+    config = json.loads((ROOT / f"rvc/configs/{sr}.json").read_text(encoding="utf-8"))
     (exp / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     (exp / "model_info.json").write_text(
         json.dumps({"speakers_id": 1, "embedder_model": "contentvec"}),
@@ -37,9 +39,10 @@ def make_dataset(exp):
 
     rng = np.random.default_rng(1234)
     rows = []
-    n = sr  # 1 second -> about 100 training frames; longer than 36-frame segment
+    n = sr  # 1-second clips; no personal data used
     samples = np.arange(n, dtype=np.float64) / sr
-    frames = 100
+    frames = sr // config["data"]["hop_length"]
+    assert frames == 100, "RVC synthetic feature alignment requires 100 fps"
     for i in range(8):
         name = f"0_xpu_{i:03}"
         freq = 140.0 + i * 12
@@ -63,12 +66,17 @@ def make_dataset(exp):
         ))
 
     (exp / "filelist.txt").write_text("\n".join(rows), encoding="utf-8")
-    print(f"[DATASET] Created {len(rows)} synthetic 24 kHz / 1s clips at {exp}")
+    print(f"[DATASET] Created {len(rows)} synthetic {sr//1000} kHz / 1s clips at {exp}", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep", action="store_true", help="Keep generated files after success")
+    parser.add_argument(
+        "--sample-rate", type=int, default=24000,
+        choices=(24000, 32000, 40000, 48000),
+        help="Exercise the real RVC configuration for this sample rate",
+    )
     args = parser.parse_args()
 
     device = require_xpu(0)
@@ -77,14 +85,14 @@ def main():
     logs.mkdir(parents=True, exist_ok=True)
     exp = pathlib.Path(tempfile.mkdtemp(prefix="__xpu_one_epoch_", dir=logs))
     try:
-        make_dataset(exp)
+        make_dataset(exp, sample_rate=args.sample_rate)
         # Same exact argv structure as core.run_train_script() in the GUI.
         command = [
             sys.executable, str(ROOT / "rvc/train/train.py"),
-            exp.name, "1", "1", "", "", "0", "1", "24000",
+            exp.name, "1", "1", "", "", "0", "1", str(args.sample_rate),
             "True", "True", "False", "False", "HiFi-GAN", "False",
         ]
-        print("[RUN] Full RVC training subprocess, 8 batches, XPU-only neural compute", flush=True)
+        print(f"[RUN] Full {args.sample_rate} Hz RVC training subprocess, 8 batches, XPU-only neural compute", flush=True)
         start = time.perf_counter()
         result = subprocess.run(command, cwd=ROOT, check=False)
         if result.returncode != 0:
