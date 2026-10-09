@@ -37,6 +37,11 @@ jobs:
         run: |
           python scripts/verify_xpu_port.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test legacy RVC weight-name remapping without GPU
+        shell: pwsh
+        run: |
+          python scripts/test_weight_key_remap.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test training worker failure detection and atomic config updates
         shell: pwsh
         run: |
