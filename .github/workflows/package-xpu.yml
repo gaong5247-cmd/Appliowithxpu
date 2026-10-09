@@ -1,43 +1,55 @@
-name: Package Applio XPU experimental overlay
+name: Validate full Applio XPU source
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
-      - "scripts/**"
-      - ".github/workflows/package-xpu.yml"
+      - '.github/workflows/package-xpu.yml'
+      - 'rvc/**'
+      - 'tabs/**'
+      - 'scripts/**'
+      - 'requirements.txt'
+      - 'run-*.bat'
+      - 'run-*.sh'
+      - 'assets/config_template.json'
+permissions:
+  contents: read
+
 jobs:
-  package:
+  validate:
     runs-on: windows-latest
     steps:
-      - name: Checkout overlay
+      - name: Checkout COMPLETE ported repository
         uses: actions/checkout@v4
-        with:
-          path: overlay
-      - name: Checkout original Applio
-        uses: actions/checkout@v4
-        with:
-          repository: IAHispano/Applio
-          ref: main
-          path: Applio-XPU
-      - name: Set up Python
+      - name: Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Apply overlay and syntax-check
+          python-version: '3.12'
+      - name: Syntax check every application package
         shell: pwsh
         run: |
-          Copy-Item overlay/scripts/apply_xpu.py Applio-XPU/apply_xpu.py
-          Copy-Item overlay/scripts/xpu_smoke.py Applio-XPU/xpu_smoke.py
-          Push-Location Applio-XPU
-          python apply_xpu.py
+          python -m compileall -q app.py core.py rvc tabs assets scripts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m py_compile rvc/configs/config.py rvc/train/train.py
+      - name: Verify strict Intel XPU paths and mocked CPU rejection
+        shell: pwsh
+        run: |
+          python scripts/verify_xpu_port.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Pop-Location
-      - name: Package modified source
+      - name: Package ported complete source
         uses: actions/upload-artifact@v4
         with:
-          name: Applio-XPU-Experimental-Source
-          path: Applio-XPU/
-          if-no-files-found: error
-          retention-days: 7
+          name: Applio-XPU-Full-Source-Windows
+          path: |
+            app.py
+            core.py
+            assets/
+            rvc/
+            tabs/
+            scripts/
+            LICENSE
+            requirements.txt
+            run-install.bat
+            run-applio.bat
+            README.md
+            UPSTREAM_COMMIT
+          retention-days: 14
