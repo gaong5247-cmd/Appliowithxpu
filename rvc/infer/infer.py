@@ -471,12 +471,10 @@ class VoiceConverter:
         if self.hubert_model is not None:
             del self.net_g, self.n_spk, self.vc, self.hubert_model, self.tgt_sr
             self.hubert_model = self.net_g = self.n_spk = self.vc = self.tgt_sr = None
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # XPU allocator reused across calls.
 
         del self.net_g, self.cpt
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # XPU allocator reused across calls.
         self.cpt = None
 
     def load_model(self, weight_root):
