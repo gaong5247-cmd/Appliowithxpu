@@ -376,8 +376,7 @@ class Pipeline:
             )
             # clean up
             del feats, feats0, p_len
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Reuse XPU cached memory for consecutive conversion chunks.
         return audio1
 
     def _retrieve_speaker_embeddings(self, feats, index, big_npy, index_rate):
@@ -558,6 +557,5 @@ class Pipeline:
         if pitch_guidance:
             del pitch, pitchf
         del sid
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # Reuse XPU cached memory for consecutive chunks.
         return audio_opt
