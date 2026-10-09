@@ -769,7 +769,7 @@ class Wav2Mel:
         self.sample_rate = args.mel.sampling_rate
         self.hop_size = args.mel.hop_size
         if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = "xpu:0" if hasattr(torch, "xpu") and torch.xpu.is_available() else (_ for _ in ()).throw(RuntimeError("Intel XPU required for FCPE"))
         self.device = device
         self.dtype = dtype
         self.stft = STFT(
