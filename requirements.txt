@@ -13,14 +13,13 @@ pedalboard==0.9.24
 stftpitchshift==2.0
 soxr==1.1.0
 
-torch==2.11.0
-torchaudio==2.11.0
 torchcrepe==0.0.24
 torchfcpe==0.0.4
 einops==0.8.2
 transformers==5.13.1
 swift-f0==0.3.0
-onnxruntime-gpu==1.26.0
+onnxruntime-directml>=1.21.0; sys_platform == "win32"
+onnxruntime>=1.21.0; sys_platform != "win32"
 
 matplotlib==3.11.0
 tensorboard==2.21.0
