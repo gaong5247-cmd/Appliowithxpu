@@ -1001,14 +1001,10 @@ def train_and_evaluate(
                     )
 
         if done:
-            # Clean-up process IDs from config.json
-            pid_file_path = os.path.join(experiment_dir, "config.json")
-            with open(pid_file_path, "r", encoding="utf-8") as pid_file:
-                pid_data = json.load(pid_file)
-            with open(pid_file_path, "w") as pid_file:
-                pid_data.pop("process_pids", None)
-                json.dump(pid_data, pid_file, indent=4)
-            return  # Normal completion: preserve a zero exit code for the parent process.
+            # Only the PARENT cleans process IDs via atomic replace after
+            # child.join(). A child writing config.json here races its parent
+            # on Windows and can corrupt the experiment configuration.
+            return  # Normal completion: preserve a zero exit code.
 
         # Reuse the XPU caching allocator across epochs.
 
