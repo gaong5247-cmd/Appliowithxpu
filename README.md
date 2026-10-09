@@ -70,6 +70,20 @@ If successful, you have validated a real G/D RVC training epoch, checkpoint expo
 
 GPU training prints `[XPU BENCH] epoch=... seconds=... steps_per_second=...` for measurements; compare per-epoch numbers with your baseline only using the **same dataset, batch size and settings**.
 
+## Verify real RMVPE and HuBERT on Intel Arc
+
+The one-epoch test above uses generated F0/HuBERT arrays and therefore **does not validate feature extraction**. This separate diagnostic erases the generated labels from its own temporary dataset, then runs the **actual Applio RMVPE and ContentVec/HuBERT extraction scripts** on eight synthetic clips using the Intel XPU:
+
+```powershell
+.\run-xpu-feature-check.bat --sample-rate 40000
+# If RMVPE or ContentVec weights are not yet downloaded:
+.\run-xpu-feature-check.bat --sample-rate 40000 --download --keep
+```
+
+It fails if any real F0, voiced-F0 or HuBERT output is missing/corrupt. On success it cleans up its unique temporary directory unless `--keep` is given. On failure the diagnostic directory and original Python traceback are retained. `--download` fetches upstream weights from IAHispano/Applio and may consume significant internet bandwidth; omit it when you already have the models.
+
+**Recommended physical-GPU validation sequence:** `run-xpu-check.bat` → `run-xpu-feature-check.bat` → `run-xpu-one-epoch.bat --sample-rate 40000` → a real one-epoch voice dataset trial → the intended 200 epochs. Neither these scripts nor hosted GitHub CI claim the Arc device has passed until you actually run them.
+
 ## CI artifacts
 
 [Actions: Validate full Applio XPU source](https://github.com/gaong5247-cmd/Appliowithxpu/actions/workflows/package-xpu.yml) checks the full source on Windows and creates `Applio-XPU-Full-Source-Windows`. This is **source**, not an installer or proven GPU-trained model. The runner has no Intel Arc GPU and does not perform an RVC epoch.
