@@ -77,6 +77,20 @@ If successful, you have validated a real G/D RVC training epoch, checkpoint expo
 
 GPU training prints `[XPU BENCH] epoch=... seconds=... steps_per_second=...` for measurements; compare per-epoch numbers with your baseline only using the **same dataset, batch size and settings**.
 
+## One-click Intel Arc end-to-end diagnostics
+
+Instead of running each hardware test manually, after `run-install.bat` you can invoke:
+
+```powershell
+.\run-xpu-validate.bat --sample-rate 40000 --download --keep
+```
+
+This sequentially checks **BF16/Conv/STFT GPU kernels**, real RVC generator and discriminator update, RMVPE+HuBERT feature extraction, **40 kHz full one-epoch training**, G/D checkpoints, public `.pth` export and **XPU audio waveform generation**. `--download` fetches missing upstream predictor/ContentVec weights; omit it to disallow downloads. Every stage runs in a clean subprocess so an earlier model cannot contaminate the result. The script stops at the first failure and writes the exact traceback and timing to `logs/xpu-diagnostics/xpu_full_*.log`. Those logs can be used to identify precisely which Intel Arc operation failed.
+
+For a short smoke test without network or model weights: `.\run-xpu-validate.bat --no-features --no-epoch`.
+
+**Important:** These are real Intel GPU tests **only when run on a physical Arc GPU**. Passing a Windows GitHub Actions source-check does not establish GPU compatibility or a speedup. Synthetic sample durations differ from your actual voice dataset, so compare epoch times only using identical real datasets and settings.
+
 ## Verify real RMVPE and HuBERT on Intel Arc
 
 The one-epoch test above uses generated F0/HuBERT arrays and therefore **does not validate feature extraction**. This separate diagnostic erases the generated labels from its own temporary dataset, then runs the **actual Applio RMVPE and ContentVec/HuBERT extraction scripts** on eight synthetic clips using the Intel XPU:
