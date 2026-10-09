@@ -1,6 +1,7 @@
 import os
 import glob
 import torch
+from rvc.train.process.atomic_checkpoint import atomic_torch_save
 import numpy as np
 import soundfile as sf
 from collections import OrderedDict
@@ -107,8 +108,8 @@ def save_checkpoint(
         "scaler": scaler.state_dict(),
     }
 
-    # Create a backwards-compatible checkpoint
-    torch.save(
+    # Create a backwards-compatible checkpoint, then atomically publish it.
+    atomic_torch_save(
         replace_keys_in_dict(
             replace_keys_in_dict(
                 checkpoint_data, ".parametrizations.weight.original1", ".weight_v"
