@@ -186,6 +186,16 @@ def main():
 
     device = require_xpu(0)
     torch.xpu.set_device(device)
+    props = torch.xpu.get_device_properties(0)
+    # The official PyTorch XPU guidance warns that FP16 GradScaler needs
+    # FP64 hardware support, which not all Intel Arc devices provide.
+    # Failing early is safer than corrupting an hours-long RVC run.
+    if train_dtype == torch.float16 and not getattr(props, "has_fp64", False):
+        raise RuntimeError(
+            "This Intel GPU lacks FP64 support required by XPU FP16 GradScaler. "
+            "Select BF16 (recommended) or FP32 in Applio Settings > Precision, "
+            "or set APPLIO_XPU_PRECISION=bf16."
+        )
     # Single XPU: no gloo/NCCL distributed backend, and no CPU/CUDA fallback.
     gpus = [0]
     n_gpus = 1
