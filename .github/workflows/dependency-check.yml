@@ -1,0 +1,35 @@
+name: Windows XPU package install compatibility
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dependency-check.yml'
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Intel XPU PyTorch wheel
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          python -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/xpu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install all Applio dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Import neural/audio/GUI packages without claiming GPU hardware
+        shell: pwsh
+        run: |
+          python -c "import torch, torchaudio, gradio, librosa, scipy, onnxruntime, torchcrepe, torchfcpe, transformers; print('IMPORT OK'); print('Torch:',torch.__version__); print('Torch XPU module:',hasattr(torch,'xpu')); print('XPU GPU available on GitHub hosted runner:',torch.xpu.is_available())"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
