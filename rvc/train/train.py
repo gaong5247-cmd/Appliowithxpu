@@ -37,7 +37,7 @@ from rvc.train.utils import (
 )
 
 from rvc.configs.config import require_xpu
-from rvc.train.process.worker_status import wait_for_training_workers
+from rvc.train.process.worker_status import wait_for_training_workers, write_process_ids
 from rvc.lib.algorithm import commons
 from rvc.train.process.extract_model import extract_model
 
@@ -195,35 +195,28 @@ def main():
         Starts the training process with multi-GPU support or CPU.
         """
         children = []
-        pid_data = {"process_pids": []}
-        with open(config_save_path, "r", encoding="utf-8") as pid_file:
-            try:
-                existing_data = json.load(pid_file)
-                pid_data.update(existing_data)
-            except json.JSONDecodeError:
-                pass
-        with open(config_save_path, "w") as pid_file:
-            for rank, device_id in enumerate(gpus):
-                subproc = mp.Process(
-                    target=run,
-                    args=(
-                        rank,
-                        n_gpus,
-                        experiment_dir,
-                        pretrainG,
-                        pretrainD,
-                        total_epoch,
-                        save_every_weights,
-                        config,
-                        device,
-                        device_id,
-                    ),
-                )
-                children.append(subproc)
-                subproc.start()
-                pid_data["process_pids"].append(subproc.pid)
-            json.dump(pid_data, pid_file, indent=4)
+        for rank, device_id in enumerate(gpus):
+            subproc = mp.Process(
+                target=run,
+                args=(
+                    rank,
+                    n_gpus,
+                    experiment_dir,
+                    pretrainG,
+                    pretrainD,
+                    total_epoch,
+                    save_every_weights,
+                    config,
+                    device,
+                    device_id,
+                ),
+            )
+            children.append(subproc)
+            subproc.start()
 
+        # Atomic replace AFTER spawning; spawned Windows workers may load
+        # config.json during their module import. Never expose empty JSON.
+        write_process_ids(config_save_path, [child.pid for child in children])
         wait_for_training_workers(children, config_save_path)
 
     if cleanup:
