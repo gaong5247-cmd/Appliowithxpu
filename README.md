@@ -60,11 +60,13 @@ Performance controls:
 ```powershell
 .\run-xpu-check.bat
 .\run-xpu-one-epoch.bat
+# Optional: test 40 kHz RVC and retain synthetic wave/checkpoints
+.\run-xpu-one-epoch.bat --sample-rate 40000 --keep
 ```
 
 This does **not** need to download or reuse anybody's voice model. The generated experiment has a unique name under `logs/__xpu_one_epoch_*`. On success it removes only its own test directory; on failure it **preserves it** for diagnosis. Pass `--keep` to retain it on success. Never remove an unrelated experiment folder.
 
-If successful, you have validated actual G/D RVC training and checkpoint writing for the 24 kHz synthetic case. It still does **not** certify 40/48 kHz, feature extraction (HuBERT/RMVPE), 200 epochs, live microphone conversion, or final audio quality. Those are separate tests on the physical Arc device.
+If successful, you have validated a real G/D RVC training epoch, checkpoint export, and generated-waveform inference on Intel XPU **for the sample rate you tested**. The launcher supports `--sample-rate 24000|32000|40000|48000`. It still does **not** certify 200 epochs, real feature extraction (HuBERT/RMVPE), live microphone conversion, or final audio quality. Those are separate tests on the physical Arc device.
 
 GPU training prints `[XPU BENCH] epoch=... seconds=... steps_per_second=...` for measurements; compare per-epoch numbers with your baseline only using the **same dataset, batch size and settings**.
 
