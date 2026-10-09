@@ -11,10 +11,8 @@ from time import time as ttime
 
 import numpy as np
 import torch
-import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn import functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -38,8 +36,7 @@ from rvc.train.utils import (
     summarize,
 )
 
-# Zluda hijack
-import rvc.lib.zluda
+from rvc.configs.config import require_xpu
 from rvc.lib.algorithm import commons
 from rvc.train.process.extract_model import extract_model
 
@@ -89,11 +86,11 @@ try:
         precision = config["precision"]
         if (
             precision == "bf16"
-            and torch.cuda.is_available()
-            and torch.cuda.is_bf16_supported()
+            and hasattr(torch, "xpu")
+            and torch.xpu.is_available()
         ):
             train_dtype = torch.bfloat16
-        elif precision == "fp16" and torch.cuda.is_available():
+        elif precision == "fp16" and hasattr(torch, "xpu") and torch.xpu.is_available():
             train_dtype = torch.float16
         else:
             train_dtype = torch.float32
@@ -117,17 +114,9 @@ except FileNotFoundError:
 
 config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
 
-torch.backends.cudnn.deterministic = False
-if os.name == "nt":  # Windows
-    torch.backends.cudnn.benchmark = True
+# BF16 autocast below is the default XPU training path.
+# Do not set CUDA/cuDNN flags: this build intentionally uses no CUDA kernels.
 
-# TF32 settings, should improve performance in some cases
-try:
-    torch.set_float32_matmul_precision("high")
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-except Exception as e:
-    print(f"Torch tf32: {e}")
 
 global_step = 0
 last_loss_gen_all = 0
@@ -193,19 +182,12 @@ def main():
     else:
         print("No wav file found.")
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        gpus = [int(item) for item in gpus.split("-")]
-        n_gpus = len(gpus)
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        gpus = [0]
-        n_gpus = 1
-    else:
-        device = torch.device("cpu")
-        gpus = [0]
-        n_gpus = 1
-        print("Training with CPU, this will take a long time.")
+    device = require_xpu(0)
+    torch.xpu.set_device(device)
+    # Single XPU: no gloo/NCCL distributed backend, and no CPU/CUDA fallback.
+    gpus = [0]
+    n_gpus = 1
+    print(f"[XPU TRAIN] {torch.xpu.get_device_name(0)}; precision={train_dtype}")
 
     def start():
         """
@@ -308,17 +290,9 @@ def run(
     else:
         writer_eval = None
 
-    dist.init_process_group(
-        backend="gloo" if sys.platform == "win32" or device.type != "cuda" else "nccl",
-        init_method="env://",
-        world_size=n_gpus if device.type == "cuda" else 1,
-        rank=rank if device.type == "cuda" else 0,
-    )
-
+    # One XPU process per run; DistributedBucketSampler can still shard one rank.
     torch.manual_seed(config.train.seed)
-
-    if torch.cuda.is_available():
-        torch.cuda.set_device(device_id)
+    torch.xpu.set_device(device_id)
 
     # Create datasets and dataloaders
     from data_utils import (
@@ -338,15 +312,17 @@ def run(
         shuffle=True,
     )
 
+    # Arc iGPUs share host memory. Small prefetch prevents 8x queued batches.
+    workers = max(0, min(8, int(os.getenv("APPLIO_XPU_WORKERS", "2"))))
     train_loader = DataLoader(
         train_dataset,
-        num_workers=4,
+        num_workers=workers,
         shuffle=False,
-        pin_memory=True,
+        pin_memory=False,
         collate_fn=collate_fn,
         batch_sampler=train_sampler,
-        persistent_workers=True,
-        prefetch_factor=8,
+        persistent_workers=workers > 0,
+        prefetch_factor=2 if workers > 0 else None,
     )
 
     # Validations
@@ -405,12 +381,8 @@ def run(
         version=disc_version,
     )
 
-    if torch.cuda.is_available():
-        net_g = net_g.cuda(device_id)
-        net_d = net_d.cuda(device_id)
-    else:
-        net_g = net_g.to(device)
-        net_d = net_d.to(device)
+    net_g = net_g.to(device)
+    net_d = net_d.to(device)
 
     if bf16_adamw == True and train_dtype == torch.bfloat16:
         print("Using BFload16 AdamW optimizer")
@@ -440,10 +412,7 @@ def run(
         fn_mel_loss = torch.nn.L1Loss()
         print("Using Single-Scale Mel loss function")
 
-    # Wrap models with DDP for multi-gpu processing
-    if n_gpus > 1 and device.type == "cuda":
-        net_g = DDP(net_g, device_ids=[device_id])
-        net_d = DDP(net_d, device_ids=[device_id])
+    # Multi-XPU DDP is not enabled; keep a single-device stable path.
 
     if rank == 0 and train_dtype == torch.bfloat16:
         print("Using BFloat16 for training.")
@@ -518,8 +487,8 @@ def run(
         optim_d, gamma=config.train.lr_decay, last_epoch=epoch_str - 2
     )
 
-    use_scaler = device.type == "cuda" and train_dtype == torch.float16
-    scaler = torch.amp.GradScaler(enabled=use_scaler)
+    use_scaler = train_dtype == torch.float16
+    scaler = torch.amp.GradScaler("xpu", enabled=use_scaler)
     if len(scaler_dict) > 0:
         scaler.load_state_dict(scaler_dict)
 
@@ -628,17 +597,15 @@ def train_and_evaluate(
     net_g.train()
     net_d.train()
 
-    use_amp = device.type == "cuda" and (
-        train_dtype == torch.bfloat16 or train_dtype == torch.float16
-    )
+    use_amp = train_dtype in (torch.bfloat16, torch.float16)
 
     # Data caching
-    if device.type == "cuda" and cache_data_in_gpu:
+    if cache_data_in_gpu and os.getenv("APPLIO_XPU_CACHE", "0") == "1":
         data_iterator = cache
         if cache == []:
             for batch_idx, info in enumerate(train_loader):
                 # phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid
-                info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
+                info = [tensor.to(device, non_blocking=True) for tensor in info]
                 cache.append((batch_idx, info))
         else:
             shuffle(cache)
@@ -648,10 +615,9 @@ def train_and_evaluate(
     epoch_recorder = EpochRecorder()
     with tqdm(total=len(train_loader), leave=False) as pbar:
         for batch_idx, info in data_iterator:
-            if device.type == "cuda" and not cache_data_in_gpu:
-                info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
-            elif device.type != "cuda":
-                info = [tensor.to(device) for tensor in info]
+            if not (cache_data_in_gpu and os.getenv("APPLIO_XPU_CACHE", "0") == "1"):
+                info = [tensor.to(device, non_blocking=True) for tensor in info]
+            # Else cached tensors are already resident on XPU.
             # else iterator is going thru a cached list with a device already assigned
 
             (
@@ -667,7 +633,7 @@ def train_and_evaluate(
             ) = info
 
             with torch.amp.autocast(
-                device_type="cuda", enabled=use_amp, dtype=train_dtype
+                device_type="xpu", enabled=use_amp, dtype=train_dtype
             ):
                 # Forward pass
                 model_output = net_g(
@@ -686,7 +652,7 @@ def train_and_evaluate(
                     )
             for _ in range(d_step_per_g_step):  # default x1
                 with torch.amp.autocast(
-                    device_type="cuda", enabled=use_amp, dtype=train_dtype
+                    device_type="xpu", enabled=use_amp, dtype=train_dtype
                 ):
                     y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
                 loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
@@ -705,7 +671,7 @@ def train_and_evaluate(
             net_d.requires_grad_(False)
 
             with torch.amp.autocast(
-                device_type="cuda", enabled=use_amp, dtype=train_dtype
+                device_type="xpu", enabled=use_amp, dtype=train_dtype
             ):
                 # Generator backward and update
                 _, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
@@ -806,8 +772,7 @@ def train_and_evaluate(
             pbar.update(1)
         # end of batch train
     # end of tqdm
-    with torch.no_grad():
-        torch.cuda.empty_cache()
+    # Avoid torch.xpu.empty_cache() each epoch: cache eviction stalls kernels.
 
     # Logging and checkpointing
     if rank == 0:
@@ -864,7 +829,7 @@ def train_and_evaluate(
 
         if epoch % save_every_epoch == 0:
             with torch.amp.autocast(
-                device_type="cuda", enabled=use_amp, dtype=train_dtype
+                device_type="xpu", enabled=use_amp, dtype=train_dtype
             ):
                 with torch.no_grad():
                     if hasattr(net_g, "module"):
@@ -980,8 +945,7 @@ def train_and_evaluate(
                 json.dump(pid_data, pid_file, indent=4)
             os._exit(2333333)
 
-        with torch.no_grad():
-            torch.cuda.empty_cache()
+        # Reuse the XPU caching allocator across epochs.
 
 
 if __name__ == "__main__":
