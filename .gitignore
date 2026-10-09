@@ -25,3 +25,8 @@ env
 venv
 .venv
 
+
+# Intel Arc local runtime / data
+.venv-xpu/
+__pycache__/
+*.log
