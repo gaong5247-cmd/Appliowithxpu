@@ -586,6 +586,12 @@ def train_and_evaluate(
     if epoch == 1:
         lowest_value = {"step": 0, "value": float("inf"), "epoch": 0}
 
+    # Track the minimum loss and its step on XPU. Upstream called .item()
+    # 1-2 times per batch, forcing an expensive GPU/CPU sync on integrated Arc.
+    best_loss_xpu = torch.tensor(lowest_value["value"], device=device, dtype=torch.float32)
+    best_step_xpu = torch.tensor(lowest_value["step"], device=device, dtype=torch.long)
+    best_epoch_xpu = torch.tensor(lowest_value["epoch"], device=device, dtype=torch.long)
+
     net_g, net_d = nets
     optim_g, optim_d = optims
     train_loader = loaders[0] if loaders is not None else None
@@ -705,12 +711,12 @@ def train_and_evaluate(
             loss_gen, _ = generator_loss(y_d_hat_g)
             loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
 
-            if loss_gen_all.item() < lowest_value["value"]:
-                lowest_value = {
-                    "step": global_step,
-                    "value": loss_gen_all.item(),
-                    "epoch": epoch,
-                }
+            # GPU-side best-loss reduction: no per-step host synchronization.
+            candidate = loss_gen_all.detach().float()
+            improved = candidate < best_loss_xpu
+            best_loss_xpu = torch.minimum(best_loss_xpu, candidate)
+            best_step_xpu = torch.where(improved, global_step, best_step_xpu)
+            best_epoch_xpu = torch.where(improved, epoch, best_epoch_xpu)
             optim_g.zero_grad()
             if train_dtype == torch.float16:
                 scaler.scale(loss_gen_all).backward()
@@ -773,6 +779,13 @@ def train_and_evaluate(
         # end of batch train
     # end of tqdm
     # Avoid torch.xpu.empty_cache() each epoch: cache eviction stalls kernels.
+
+    # Materialize best-loss metadata only ONCE per epoch.
+    lowest_value = {
+        "value": best_loss_xpu.item(),
+        "step": best_step_xpu.item(),
+        "epoch": best_epoch_xpu.item(),
+    }
 
     # Logging and checkpointing
     if rank == 0:
