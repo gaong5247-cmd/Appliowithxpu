@@ -332,7 +332,8 @@ async def websocket_audio(ws: WebSocket):
             del vc_instance
             vc_instance = None
 
-        torch.cuda.empty_cache()
+        if torch.xpu.is_available():
+            torch.xpu.empty_cache()
 
         try:
             await ws.close()
