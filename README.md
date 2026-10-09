@@ -6,7 +6,7 @@
 
 ## Windows installation
 
-Requirements: Windows 11, updated Intel Arc graphics driver, Python **3.12** (or **3.11**) with the `py` launcher, Git, internet for PyTorch and model downloads.
+Requirements: Windows 11, Intel Arc graphics driver **32.0.101.8801 or newer** per [Intel's PyTorch 2.14 requirements](https://www.intel.com/content/www/us/en/developer/articles/tool/pytorch-prerequisites-for-intel-gpu/2-14.html), Python **3.12** (or **3.11**) with the `py` launcher, Git, internet for PyTorch and model downloads.
 
 ```powershell
 git clone https://github.com/gaong5247-cmd/Appliowithxpu.git
@@ -35,6 +35,8 @@ Performance controls:
 
 - `APPLIO_XPU_WORKERS=2` (default): PyTorch DataLoader worker processes; tune 0–4 on Windows.
 - `APPLIO_XPU_CACHE=0` (default): no full-dataset GPU caching on integrated graphics. Set 1 only if the whole dataset fits and the GUI caching checkbox is also enabled.
+- `APPLIO_XPU_GRAD_LOG_INTERVAL=10` (default): only collect expensive gradient-norm diagnostics every 10 steps, plus each TensorBoard 50-step boundary and epoch end. Use 1 to restore logging every step.
+- `APPLIO_XPU_ADAMW_FOREACH=0` (default): keep memory-conservative AdamW. On an Intel GPU, `.\.venv-xpu\Scripts\python.exe scripts\benchmark_xpu_adamw.py` compares the regular and foreach optimizer implementations. Set 1 only after verifying speed **and** memory headroom using a real RVC epoch.
 - `torch.xpu.empty_cache()` is not called per batch or epoch; avoiding allocator churn generally helps.
 
 ## Ported code areas
