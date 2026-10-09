@@ -166,7 +166,7 @@ class IndexWrapper:
         self,
         index_path: str,
         nprobe: int = 12,
-        device: str = "cuda",
+        device: str = "xpu:0",
         dtype: torch.dtype = torch.float32,
         clamp: float = 1e-8,
     ):
