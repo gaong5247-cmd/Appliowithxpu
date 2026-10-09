@@ -9,8 +9,10 @@ def feature_loss(fmap_r, fmap_g):
         fmap_r (list of torch.Tensor): List of reference feature maps.
         fmap_g (list of torch.Tensor): List of generated feature maps.
     """
+    # Compute reductions in FP32 even when the discriminator ran under
+    # Intel XPU BF16 autocast; preserve gradients through dtype conversion.
     return 2 * sum(
-        torch.mean(torch.abs(rl - gl))
+        torch.mean(torch.abs(rl.float() - gl.float()))
         for dr, dg in zip(fmap_r, fmap_g)
         for rl, gl in zip(dr, dg)
     )
@@ -126,7 +128,13 @@ def kl_loss(z_p, logs_q, m_p, logs_p, z_mask):
         logs_p (torch.Tensor): Log variance of p [b, h, t_t].
         z_mask (torch.Tensor): Mask for the latent variables [b, h, t_t].
     """
+    # BF16 range is broad, but rounding the KL logarithms and exponentials
+    # can corrupt a long run. FP32 for this small reduction is safer.
+    z_p, logs_q, m_p, logs_p = (
+        z_p.float(), logs_q.float(), m_p.float(), logs_p.float()
+    )
+    z_mask = z_mask.float()
     kl = logs_p - logs_q - 0.5 + 0.5 * ((z_p - m_p) ** 2) * torch.exp(-2 * logs_p)
     kl = (kl * z_mask).sum()
-    loss = kl / z_mask.sum()
+    loss = kl / z_mask.sum().clamp_min(1)
     return loss
