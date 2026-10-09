@@ -65,6 +65,20 @@ def main():
     check("Generator/discriminator convolution", conv)
     check("Vocoder transposed convolution", transposed)
     check("Mel spectrogram FFT", stft)
+
+    def vectorized_slice():
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from rvc.lib.algorithm.commons import slice_segments
+        src = torch.randn(4, 16, 96, device=dev, requires_grad=True)
+        starts = torch.tensor([0, 8, 16, 24], device=dev)
+        out = slice_segments(src, starts, 32, dim=3)
+        out.mean().backward()
+        assert src.grad.device.type == "xpu"
+        return "RVC temporal slice + backward on XPU"
+
+    check("RVC GPU-native slicing", vectorized_slice)
     print("\nXPU COMPUTE SMOKE OK. End-to-end RVC training needs a real dataset/checkpoints.")
 
 
