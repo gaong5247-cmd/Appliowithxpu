@@ -39,6 +39,13 @@ Performance controls:
 - `APPLIO_XPU_ADAMW_FOREACH=0` (default): keep memory-conservative AdamW. On an Intel GPU, `.\.venv-xpu\Scripts\python.exe scripts\benchmark_xpu_adamw.py` compares the regular and foreach optimizer implementations. Set 1 only after verifying speed **and** memory headroom using a real RVC epoch.
 - `torch.xpu.empty_cache()` is not called per batch or epoch; avoiding allocator churn generally helps.
 
+## Legacy RVC .pth compatibility and safe precision
+
+- Public RVC `.pth` exports often use legacy `weight_g/weight_v` tensors, while recent PyTorch parametrized weight normalization uses `parametrizations.weight.original0/original1`. Both offline and realtime loaders now normalize these keys and **reject missing/unexpected neural weights** instead of silently loading only a subset (`rvc/lib/weights.py`).
+- Fast Windows CI verifies both root-level and nested conversion. The full GPU-independent integration workflow also checks actual generator export/reload tensor parity with `scripts/test_rvc_checkpoint_roundtrip.py`.
+- Headless `rvc/train/train.py` reads the same BF16 default from `assets/config_template.json` when the GUI has not created `assets/config.json`. Override per run using `APPLIO_XPU_PRECISION=fp32|bf16|fp16`.
+- PyTorch's Intel XPU documentation notes that FP16 GradScaler needs FP64 hardware support. The trainer refuses unsupported FP16 setups and directs the user toward BF16/FP32, rather than quietly continuing with unsafe optimizer behavior.
+
 ## Ported code areas
 
 - `rvc/configs/config.py`: strict XPU device, GPU names and iGPU-specific inference buffer sizes.
