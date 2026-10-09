@@ -13,8 +13,7 @@ import tqdm
 now_dir = os.getcwd()
 sys.path.append(os.path.join(now_dir))
 
-# Zluda hijack
-import rvc.lib.zluda
+from rvc.configs.config import require_xpu
 from rvc.configs.config import Config
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, load_high_register_settings
 from rvc.lib.utils import load_audio, load_embedding
@@ -124,7 +123,8 @@ def run_pitch_extraction(files, devices, f0_method, threads):
             )
             for i in range(len(devices))
         ]
-        concurrent.futures.wait(tasks)
+        for task in tasks:
+            task.result()
 
     print(f"Pitch extraction completed in {time.time() - start_time:.2f} seconds.")
 
@@ -134,7 +134,7 @@ def process_file_embedding(
 ):
     model = load_embedding(embedder_model, embedder_model_custom).to(device).float()
     model.eval()
-    n_threads = max(1, n_threads)
+    n_threads = 1  # A single model on XPU: avoid concurrent driver/allocator contention.
 
     def worker(file_info):
         wav_file_path, _, _, out_file_path = file_info
@@ -239,7 +239,9 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    devices = ["cpu"] if gpus == "-" else [f"cuda:{idx}" for idx in gpus.split("-")]
+    # Force exactly one Intel GPU process; multiple workers contend on shared Arc memory.
+    require_xpu(0)
+    devices = ["xpu:0"]
 
     run_pitch_extraction(files, devices, f0_method, num_processes)
 
