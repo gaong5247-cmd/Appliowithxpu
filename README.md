@@ -51,6 +51,21 @@ Performance controls:
 
 **Important limitation:** Sound file loading, resampling, FAISS index search and checkpoint reading legitimately use CPU-host work; "XPU-only" refers to **neural GPU compute** and no CPU/CUDA compute fallback, not an impossible complete ban on CPU tasks. ONNX DirectML is a separate optional backend. Some operators or dependencies may still be incompatible with XPU on particular Intel drivers.
 
+## Test a real Intel Arc training epoch (no personal dataset)
+
+`run-xpu-check.bat` first tests Intel XPU primitives plus the real generator/discriminator synthetic forward/backward. After that, `run-xpu-one-epoch.bat` runs **the unchanged real rvc/train/train.py command-line entrypoint** for one epoch on eight generated 24 kHz synthetic clips and verifies that both G/D checkpoints were written. It takes nontrivial GPU time and memory, so run it separately:
+
+```powershell
+.\run-xpu-check.bat
+.\run-xpu-one-epoch.bat
+```
+
+This does **not** need to download or reuse anybody's voice model. The generated experiment has a unique name under `logs/__xpu_one_epoch_*`. On success it removes only its own test directory; on failure it **preserves it** for diagnosis. Pass `--keep` to retain it on success. Never remove an unrelated experiment folder.
+
+If successful, you have validated actual G/D RVC training and checkpoint writing for the 24 kHz synthetic case. It still does **not** certify 40/48 kHz, feature extraction (HuBERT/RMVPE), 200 epochs, live microphone conversion, or final audio quality. Those are separate tests on the physical Arc device.
+
+GPU training prints `[XPU BENCH] epoch=... seconds=... steps_per_second=...` for measurements; compare per-epoch numbers with your baseline only using the **same dataset, batch size and settings**.
+
 ## CI artifacts
 
 [Actions: Validate full Applio XPU source](https://github.com/gaong5247-cmd/Appliowithxpu/actions/workflows/package-xpu.yml) checks the full source on Windows and creates `Applio-XPU-Full-Source-Windows`. This is **source**, not an installer or proven GPU-trained model. The runner has no Intel Arc GPU and does not perform an RVC epoch.
