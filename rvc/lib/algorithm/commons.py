@@ -51,20 +51,15 @@ def slice_segments(
         segment_size (int, optional): The size of each segment. Defaults to 4.
         dim (int, optional): The dimension to slice across (2D or 3D tensors). Defaults to 2.
     """
+    # Keep segment offsets ON the accelerator. The upstream Python loop called
+    # ids_str[i].item(), synchronizing XPU -> CPU once per sample per forward.
+    if dim not in (2, 3):
+        raise ValueError("slice_segments supports 2D and 3D tensors only")
+    ids_str = ids_str.to(device=x.device, dtype=torch.long)
+    offsets = ids_str[:, None] + torch.arange(segment_size, device=x.device)[None, :]
     if dim == 2:
-        ret = torch.zeros_like(x[:, :segment_size])
-    elif dim == 3:
-        ret = torch.zeros_like(x[:, :, :segment_size])
-
-    for i in range(x.size(0)):
-        idx_str = ids_str[i].item()
-        idx_end = idx_str + segment_size
-        if dim == 2:
-            ret[i] = x[i, idx_str:idx_end]
-        else:
-            ret[i] = x[i, :, idx_str:idx_end]
-
-    return ret
+        return x.gather(1, offsets)
+    return x.gather(2, offsets[:, None, :].expand(-1, x.shape[1], -1))
 
 
 def rand_slice_segments(x, x_lengths=None, segment_size=4):
@@ -133,6 +128,9 @@ def grad_norm(parameters, norm_type: float = 2.0):
     if not parameters:
         return 0.0
 
+    # Return a detached scalar tensor. Calling .item() here forces a CPU/XPU
+    # synchronization TWICE PER TRAINING BATCH. TensorBoard logging can
+    # materialize the value only when a logging interval is reached.
     return torch.linalg.vector_norm(
         torch.stack([p.grad.norm(norm_type) for p in parameters]), ord=norm_type
-    ).item()
+    ).detach()
