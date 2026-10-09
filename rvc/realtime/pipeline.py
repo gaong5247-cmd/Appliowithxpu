@@ -15,6 +15,7 @@ from rvc.realtime.utils.torch import circular_write, AudioProcessorTorch, IndexW
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune
 from rvc.lib.algorithm.synthesizers import Synthesizer
+from rvc.lib.weights import load_rvc_voice_weights
 from rvc.lib.predictors.f0 import FCPE, RMVPE, Swift
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
 
@@ -72,7 +73,7 @@ class RealtimeVoiceConverter:
                 vocoder=self.vocoder,
             )
 
-            self.net_g.load_state_dict(self.cpt["weight"], strict=False)
+            load_rvc_voice_weights(self.net_g, self.cpt["weight"])
             strip_parametrizations(self.net_g)
             self.net_g = self.net_g.to(self.config.device).to(self.dtype)
             self.net_g.eval()
