@@ -4,6 +4,9 @@ Opt-in foreach costs more memory. Run on YOUR hardware and only enable the
 environment variable if it clearly improves the comparable benchmark.
 """
 import time
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
 from rvc.configs.config import require_xpu
 
