@@ -923,8 +923,9 @@ def train_and_evaluate(
             )
         print(record)
 
-        # Save weights every N epochs
-        if epoch % save_every_epoch == 0:
+        # Preserve resumable G/D checkpoints at the FINAL epoch even if
+        # the configured save interval does not divide total_epoch.
+        if epoch % save_every_epoch == 0 or epoch >= custom_total_epoch:
             checkpoint_suffix = f"{2333333 if save_only_latest else global_step}.pth"
             save_checkpoint(
                 net_g,
