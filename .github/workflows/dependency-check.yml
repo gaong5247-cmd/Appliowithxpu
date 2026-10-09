@@ -65,3 +65,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test_rvc_weight_loading.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test_rvc_checkpoint_roundtrip.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
