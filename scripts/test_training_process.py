@@ -5,7 +5,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from rvc.train.process.worker_status import wait_for_training_workers
+from rvc.train.process.worker_status import wait_for_training_workers, write_process_ids
 
 
 class Child:
@@ -22,6 +22,9 @@ def case(exitcodes):
         path = pathlib.Path(temp) / "config.json"
         path.write_text(json.dumps({"name": "sample", "process_pids": [10, 20]}), encoding="utf-8")
         children = [Child(n + 100, exitcode) for n, exitcode in enumerate(exitcodes)]
+        write_process_ids(str(path), [child.pid for child in children])
+        assert json.loads(path.read_text(encoding="utf-8"))["process_pids"] == [child.pid for child in children]
+        assert not (pathlib.Path(temp) / "config.json.parent-tmp").exists()
         try:
             wait_for_training_workers(children, str(path))
             failed = False
