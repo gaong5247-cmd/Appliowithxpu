@@ -25,8 +25,8 @@ def main():
     reference = source(torch.randn(1, 2, 12))
     params = {name: t.detach().clone() for name, t in source.state_dict().items()}
     legacy = {
-        name.replace(".parametrizations.weight.original0", ".weight_g")
-            .replace(".parametrizations.weight.original1", ".weight_v"): t.clone()
+        name.replace("parametrizations.weight.original0", "weight_g")
+            .replace("parametrizations.weight.original1", "weight_v"): t.clone()
         for name, t in params.items()
     }
     assert any(k.endswith(".weight_g") for k in legacy)
