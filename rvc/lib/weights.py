@@ -16,7 +16,11 @@ def normalize_rvc_weight_keys(state_dict):
         if not isinstance(key, str):
             raise TypeError(f"Invalid RVC parameter name: {key!r}")
         name = key
-        if name.endswith(".weight_g"):
+        if name == "weight_g":
+            name = "parametrizations.weight.original0"
+        elif name == "weight_v":
+            name = "parametrizations.weight.original1"
+        elif name.endswith(".weight_g"):
             name = name[: -len(".weight_g")] + ".parametrizations.weight.original0"
         elif name.endswith(".weight_v"):
             name = name[: -len(".weight_v")] + ".parametrizations.weight.original1"
