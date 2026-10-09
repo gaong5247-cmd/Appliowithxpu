@@ -6,6 +6,21 @@ import json
 import os
 
 
+def write_process_ids(config_save_path, pids):
+    """Atomically update process IDs without exposing a truncated JSON file.
+
+    On Windows spawned RVC workers re-import train.py, and its module-level
+    config loading must never race a parent's open(..., "w") truncation.
+    """
+    with open(config_save_path, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+    metadata["process_pids"] = list(pids)
+    temporary = config_save_path + ".parent-tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=4)
+    os.replace(temporary, config_save_path)
+
+
 def wait_for_training_workers(children, config_save_path):
     failures = []
     for child in children:
