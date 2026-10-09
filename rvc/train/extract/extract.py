@@ -94,9 +94,11 @@ class FeatureInput:
             coarse_pit = self.coarse_f0(feature_pit)
             np.save(opt_path_coarse, coarse_pit, allow_pickle=False)
         except Exception as error:
-            print(
-                f"An error occurred extracting file {inp_path} on {self.device}: {error}"
-            )
+            # Do NOT silently train on missing F0 files or a partial dataset.
+            # ProcessPoolExecutor propagates this traceback back to the UI.
+            raise RuntimeError(
+                f"F0 extraction failed for '{inp_path}' on {self.device}: {error}"
+            ) from error
 
 
 def process_files(files, f0_method, device, threads):
@@ -140,11 +142,10 @@ def process_file_embedding(
         wav_file_path, _, _, out_file_path = file_info
         if os.path.exists(out_file_path):
             return
-        feats = (
-            torch.from_numpy(load_audio(wav_file_path, SAMPLE_RATE_16K))
-            .to(device)
-            .float()
-        )
+        # Downcast before transfer: don't send float64 host buffers to the iGPU.
+        feats = torch.from_numpy(
+            np.asarray(load_audio(wav_file_path, SAMPLE_RATE_16K), dtype=np.float32)
+        ).to(device)
         feats = feats.view(1, -1)
         with torch.no_grad():
             result = model(feats)["last_hidden_state"]
@@ -152,12 +153,14 @@ def process_file_embedding(
         if not np.isnan(feats_out).any():
             np.save(out_file_path, feats_out, allow_pickle=False)
         else:
-            print(f"{wav_file_path} produced NaN values; skipping.")
+            raise RuntimeError(f"HuBERT extracted NaN embeddings from '{wav_file_path}'")
 
     with tqdm.tqdm(total=len(files), leave=True, position=device_num) as pbar:
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
             futures = [executor.submit(worker, f) for f in files]
-            for _ in concurrent.futures.as_completed(futures):
+            for future in concurrent.futures.as_completed(futures):
+                # Propagate errors; missing embeddings must block training.
+                future.result()
                 pbar.update(1)
 
 
@@ -182,7 +185,8 @@ def run_embedding_extraction(
             )
             for i in range(len(devices))
         ]
-        concurrent.futures.wait(tasks)
+        for task in tasks:
+            task.result()
 
     print(f"Embedding extraction completed in {time.time() - start_time:.2f} seconds.")
 
@@ -248,6 +252,12 @@ if __name__ == "__main__":
     run_embedding_extraction(
         files, devices, embedder_model, embedder_model_custom, num_processes
     )
+
+    # Fail closed if any component was skipped or crashed.
+    for item in files:
+        for expected in item[1:]:
+            if not os.path.isfile(expected):
+                raise RuntimeError(f"Incomplete XPU extraction: missing {expected}")
 
     generate_config(sample_rate, exp_dir)
     generate_filelist(exp_dir, sample_rate, include_mutes)
