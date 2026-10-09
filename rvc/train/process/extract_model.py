@@ -6,6 +6,7 @@ import sys
 from collections import OrderedDict
 
 import torch
+from rvc.train.process.atomic_checkpoint import atomic_torch_save
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -64,7 +65,8 @@ def extract_model(
 
         opt = OrderedDict(
             weight={
-                key: value.half() for key, value in ckpt.items() if "enc_q" not in key
+                key: value.half() if value.is_floating_point() else value.clone()
+                for key, value in ckpt.items() if not key.startswith("enc_q.")
             }
         )
         opt["config"] = [
@@ -104,7 +106,7 @@ def extract_model(
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
 
-        torch.save(
+        atomic_torch_save(
             replace_keys_in_dict(
                 replace_keys_in_dict(
                     opt, ".parametrizations.weight.original1", ".weight_v"
