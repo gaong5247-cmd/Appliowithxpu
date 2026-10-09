@@ -11,7 +11,7 @@
   },
   "version": "3.6.5",
   "model_author": "None",
-  "precision": "fp16",
+  "precision": "bf16",
   "rmvpe_high_register": {
     "enabled": false,
     "mode": "true_pitch",
