@@ -729,7 +729,7 @@ class FCPEInfer:
             device = "xpu:0" if hasattr(torch, "xpu") and torch.xpu.is_available() else (_ for _ in ()).throw(RuntimeError("Intel XPU required for FCPE"))
         self.device = device
         ckpt = torch.load(
-            model_path, map_location=torch.device(self.device), weights_only=True
+            model_path, map_location="cpu", weights_only=True
         )
         self.args = DotDict(ckpt["config"])
         self.dtype = dtype
