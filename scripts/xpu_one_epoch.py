@@ -117,6 +117,42 @@ def main():
         voice_model = torch.load(exported[-1], map_location="cpu", weights_only=True)
         if not voice_model.get("weight") or voice_model.get("sr") != args.sample_rate:
             raise RuntimeError("Exported inference .pth is invalid or has the wrong sample rate")
+
+        # The real RVC vocoder must also accept the exported checkpoint.
+        # This checks GPU synthesis, not just existence of a .pth filename.
+        from rvc.lib.algorithm.synthesizers import Synthesizer
+        voice_model["config"][-3] = voice_model["weight"]["emb_g.weight"].shape[0]
+        model = Synthesizer(
+            *voice_model["config"],
+            use_f0=voice_model.get("f0", 1),
+            text_enc_hidden_dim=768 if voice_model.get("version", "v2") == "v2" else 256,
+            vocoder=voice_model.get("vocoder", "HiFi-GAN"),
+        )
+        del model.enc_q
+        missing = model.load_state_dict(voice_model["weight"], strict=False)
+        missing_params = [key for key in missing.missing_keys if not key.startswith("enc_q.")]
+        if missing_params:
+            raise RuntimeError(
+                "Exported inference .pth is incompatible with RVC synthesizer: "
+                + ", ".join(missing_params[:12])
+            )
+        model = model.to(device).float().eval()
+        with torch.inference_mode():
+            phonemes = torch.randn(1, 50, 768, device=device)
+            lengths = torch.tensor([50], dtype=torch.long, device=device)
+            pitch = torch.full((1, 50), 120, dtype=torch.long, device=device)
+            pitchf = torch.full((1, 50), 180.0, dtype=torch.float32, device=device)
+            speaker = torch.zeros(1, dtype=torch.long, device=device)
+            audio_out, *_ = model.infer(phonemes, lengths, pitch, pitchf, speaker)
+            torch.xpu.synchronize()
+            if audio_out.numel() == 0 or not bool(torch.isfinite(audio_out).all()):
+                raise RuntimeError("XPU vocoder generated empty or NaN/Inf audio")
+            sf.write(
+                exp / "rvc_synthetic_inference.wav",
+                audio_out[0, 0].float().cpu().numpy(),
+                args.sample_rate,
+            )
+        print("[PASS] Exported .pth loaded and generated finite waveform on Intel XPU", flush=True)
         print(
             f"[PASS] Real XPU 1-epoch subprocess + G/D + usable inference .pth "
             f"in {time.perf_counter() - start:.1f} seconds",
