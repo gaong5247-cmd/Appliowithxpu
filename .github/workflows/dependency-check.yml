@@ -41,3 +41,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/test_rvc_cpu_contract.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test_training_dataset.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
