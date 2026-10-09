@@ -1,13 +1,49 @@
-import torch
+"""XPU-only device configuration for Applio.
+
+GPU compute requires Intel Arc / Intel XPU. Host-side audio processing,
+FAISS indexes and checkpoint deserialization can still run on the CPU.
+"""
 import json
 import os
 
-version_config_paths = [
-    os.path.join("48000.json"),
-    os.path.join("40000.json"),
-    os.path.join("32000.json"),
-    os.path.join("24000.json"),
-]
+import torch
+
+version_config_paths = ["48000.json", "40000.json", "32000.json", "24000.json"]
+
+
+def require_xpu(index=0):
+    if not hasattr(torch, "xpu") or not torch.xpu.is_available():
+        raise RuntimeError(
+            "Applio with XPU requires a working Intel XPU GPU. "
+            "Update your Intel graphics driver, install PyTorch from "
+            "https://download.pytorch.org/whl/xpu and run scripts/xpu_smoke.py. "
+            "CPU/CUDA fallback has deliberately been disabled."
+        )
+    if index < 0 or index >= torch.xpu.device_count():
+        raise RuntimeError(f"XPU device {index} is not available")
+    return torch.device(f"xpu:{index}")
+
+
+def max_vram_gpu(gpu):
+    """Reported XPU memory in GiB (integrated GPU memory can be shared)."""
+    props = torch.xpu.get_device_properties(int(gpu)) if torch.xpu.is_available() else None
+    return round(props.total_memory / (1024**3)) if props is not None else 0
+
+
+def get_gpu_info():
+    try:
+        require_xpu()
+    except RuntimeError as exc:
+        return f"Intel XPU unavailable: {exc}"
+    return "\n".join(
+        f"{i}: {torch.xpu.get_device_name(i)} ({max_vram_gpu(i)} GiB reported)"
+        for i in range(torch.xpu.device_count())
+    )
+
+
+def get_number_of_gpus():
+    # Applio XPU training currently uses a single GPU, not XCCL DDP.
+    return "0" if hasattr(torch, "xpu") and torch.xpu.is_available() else "-"
 
 
 def singleton(cls):
@@ -24,76 +60,24 @@ def singleton(cls):
 @singleton
 class Config:
     def __init__(self):
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.gpu_name = (
-            torch.cuda.get_device_name(int(self.device.split(":")[-1]))
-            if self.device.startswith("cuda")
-            else None
-        )
+        self.device = str(require_xpu())
+        self.gpu_name = torch.xpu.get_device_name(0)
+        self.gpu_mem = max_vram_gpu(0)
         self.json_config = self.load_config_json()
-        self.gpu_mem = None
         self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
+        # XPU training starts single-device: model compute on XPU, audio IO on host.
+        print(f"[Applio XPU] {self.gpu_name}: {self.device}; reported memory {self.gpu_mem} GiB")
 
     def load_config_json(self):
         configs = {}
-        for config_file in version_config_paths:
-            config_path = os.path.join("rvc", "configs", config_file)
-            with open(config_path, "r", encoding="utf-8") as f:
-                configs[config_file] = json.load(f)
+        for name in version_config_paths:
+            path = os.path.join("rvc", "configs", name)
+            with open(path, "r", encoding="utf-8") as f:
+                configs[name] = json.load(f)
         return configs
 
     def device_config(self):
-        if self.device.startswith("cuda"):
-            self.set_cuda_config()
-        else:
-            self.device = "cpu"
-
-        # Configuration for 6GB GPU memory
-        x_pad, x_query, x_center, x_max = (1, 6, 38, 41)
-        if self.gpu_mem is not None and self.gpu_mem <= 4:
-            # Configuration for 5GB GPU memory
-            x_pad, x_query, x_center, x_max = (1, 5, 30, 32)
-
-        return x_pad, x_query, x_center, x_max
-
-    def set_cuda_config(self):
-        i_device = int(self.device.split(":")[-1])
-        self.gpu_name = torch.cuda.get_device_name(i_device)
-        self.gpu_mem = torch.cuda.get_device_properties(i_device).total_memory // (
-            1024**3
-        )
-
-
-def max_vram_gpu(gpu):
-    if torch.cuda.is_available():
-        gpu_properties = torch.cuda.get_device_properties(gpu)
-        total_memory_gb = round(gpu_properties.total_memory / 1024 / 1024 / 1024)
-        return total_memory_gb
-    else:
-        return "8"
-
-
-def get_gpu_info():
-    ngpu = torch.cuda.device_count()
-    gpu_infos = []
-    if torch.cuda.is_available() or ngpu != 0:
-        for i in range(ngpu):
-            gpu_name = torch.cuda.get_device_name(i)
-            mem = int(
-                torch.cuda.get_device_properties(i).total_memory / 1024 / 1024 / 1024
-                + 0.4
-            )
-            gpu_infos.append(f"{i}: {gpu_name} ({mem} GB)")
-    if len(gpu_infos) > 0:
-        gpu_info = "\n".join(gpu_infos)
-    else:
-        gpu_info = "Unfortunately, there is no compatible GPU available to support your training."
-    return gpu_info
-
-
-def get_number_of_gpus():
-    if torch.cuda.is_available():
-        num_gpus = torch.cuda.device_count()
-        return "-".join(map(str, range(num_gpus)))
-    else:
-        return "-"
+        # Conservative defaults for memory-constrained integrated Arc devices.
+        if self.gpu_mem and self.gpu_mem <= 4:
+            return (1, 5, 30, 32)
+        return (1, 6, 38, 41)
