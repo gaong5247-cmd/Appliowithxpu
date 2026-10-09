@@ -121,6 +121,7 @@ def main():
         # The real RVC vocoder must also accept the exported checkpoint.
         # This checks GPU synthesis, not just existence of a .pth filename.
         from rvc.lib.algorithm.synthesizers import Synthesizer
+        from rvc.lib.weights import load_rvc_voice_weights
         voice_model["config"][-3] = voice_model["weight"]["emb_g.weight"].shape[0]
         model = Synthesizer(
             *voice_model["config"],
@@ -129,13 +130,7 @@ def main():
             vocoder=voice_model.get("vocoder", "HiFi-GAN"),
         )
         del model.enc_q
-        missing = model.load_state_dict(voice_model["weight"], strict=False)
-        missing_params = [key for key in missing.missing_keys if not key.startswith("enc_q.")]
-        if missing_params:
-            raise RuntimeError(
-                "Exported inference .pth is incompatible with RVC synthesizer: "
-                + ", ".join(missing_params[:12])
-            )
+        load_rvc_voice_weights(model, voice_model["weight"])
         model = model.to(device).float().eval()
         with torch.inference_mode():
             phonemes = torch.randn(1, 50, 768, device=device)
