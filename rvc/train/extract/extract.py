@@ -18,6 +18,7 @@ from rvc.configs.config import Config
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, load_high_register_settings
 from rvc.lib.utils import load_audio, load_embedding
 from rvc.train.extract.preparing_files import generate_config, generate_filelist
+from rvc.train.extract.storage import atomic_save_npy, valid_npy
 
 # Load config
 config = Config()
@@ -84,15 +85,20 @@ class FeatureInput:
 
     def process_file(self, file_info):
         inp_path, opt_path_coarse, opt_path_full, _ = file_info
-        if os.path.exists(opt_path_coarse) and os.path.exists(opt_path_full):
-            return
+        if valid_npy(opt_path_coarse, 1) and valid_npy(opt_path_full, 1):
+            if (
+                np.load(opt_path_coarse, mmap_mode="r", allow_pickle=False).shape
+                == np.load(opt_path_full, mmap_mode="r", allow_pickle=False).shape
+            ):
+                return
+        # Missing or corrupted cached F0 data gets regenerated atomically.
 
         try:
             np_arr = load_audio(inp_path, SAMPLE_RATE_16K)
             feature_pit = self.compute_f0(np_arr)
-            np.save(opt_path_full, feature_pit, allow_pickle=False)
+            atomic_save_npy(opt_path_full, feature_pit)
             coarse_pit = self.coarse_f0(feature_pit)
-            np.save(opt_path_coarse, coarse_pit, allow_pickle=False)
+            atomic_save_npy(opt_path_coarse, coarse_pit)
         except Exception as error:
             # Do NOT silently train on missing F0 files or a partial dataset.
             # ProcessPoolExecutor propagates this traceback back to the UI.
@@ -140,8 +146,9 @@ def process_file_embedding(
 
     def worker(file_info):
         wav_file_path, _, _, out_file_path = file_info
-        if os.path.exists(out_file_path):
+        if valid_npy(out_file_path, 2):
             return
+        # Recreate truncated/corrupted embeddings instead of reusing them.
         # Downcast before transfer: don't send float64 host buffers to the iGPU.
         feats = torch.from_numpy(
             np.asarray(load_audio(wav_file_path, SAMPLE_RATE_16K), dtype=np.float32)
@@ -151,7 +158,7 @@ def process_file_embedding(
             result = model(feats)["last_hidden_state"]
         feats_out = result.squeeze(0).float().cpu().numpy()
         if not np.isnan(feats_out).any():
-            np.save(out_file_path, feats_out, allow_pickle=False)
+            atomic_save_npy(out_file_path, feats_out)
         else:
             raise RuntimeError(f"HuBERT extracted NaN embeddings from '{wav_file_path}'")
 
@@ -256,8 +263,11 @@ if __name__ == "__main__":
     # Fail closed if any component was skipped or crashed.
     for item in files:
         for expected in item[1:]:
-            if not os.path.isfile(expected):
-                raise RuntimeError(f"Incomplete XPU extraction: missing {expected}")
+            target_rank = 2 if expected == item[3] else 1
+            if not valid_npy(expected, target_rank):
+                raise RuntimeError(
+                    f"Incomplete or corrupt XPU extraction: invalid {expected}"
+                )
 
     generate_config(sample_rate, exp_dir)
     generate_filelist(exp_dir, sample_rate, include_mutes)
