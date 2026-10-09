@@ -102,16 +102,24 @@ def main():
             )
         gen = sorted(exp.glob("G_*.pth"))
         disc = sorted(exp.glob("D_*.pth"))
-        if not gen or not disc:
-            raise RuntimeError("Training returned success but a G or D checkpoint is missing")
-        g = torch.load(gen[-1], map_location="cpu", weights_only=True)
-        for name, tensor in g["model"].items():
-            if torch.is_tensor(tensor) and tensor.is_floating_point():
-                if not torch.isfinite(tensor).all():
-                    raise RuntimeError(f"Generated G checkpoint contains NaN/Inf parameter: {name}")
+        exported = sorted(exp.glob(f"{exp.name}_*e_*s.pth"))
+        if not (gen and disc and exported):
+            raise RuntimeError(
+                "Training returned exit=0 but checkpoint/export is missing: "
+                f"G={bool(gen)} D={bool(disc)} inference_pth={bool(exported)}"
+            )
+        for label, path in (("G", gen[-1]), ("D", disc[-1])):
+            checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+            for key, tensor in checkpoint["model"].items():
+                if torch.is_tensor(tensor) and tensor.is_floating_point():
+                    if not torch.isfinite(tensor).all():
+                        raise RuntimeError(f"{label} checkpoint has NaN/Inf: {key}")
+        voice_model = torch.load(exported[-1], map_location="cpu", weights_only=True)
+        if not voice_model.get("weight") or voice_model.get("sr") != args.sample_rate:
+            raise RuntimeError("Exported inference .pth is invalid or has the wrong sample rate")
         print(
-            f"[PASS] Real XPU 1-epoch subprocess + G/D checkpoints in "
-            f"{time.perf_counter() - start:.1f} seconds",
+            f"[PASS] Real XPU 1-epoch subprocess + G/D + usable inference .pth "
+            f"in {time.perf_counter() - start:.1f} seconds",
             flush=True,
         )
     except BaseException:
