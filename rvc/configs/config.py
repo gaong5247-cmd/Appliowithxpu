@@ -78,6 +78,8 @@ class Config:
 
     def device_config(self):
         # Conservative defaults for memory-constrained integrated Arc devices.
-        if self.gpu_mem and self.gpu_mem <= 4:
+        # Intel Arc iGPU reports shared system RAM, not dedicated VRAM.
+        props = torch.xpu.get_device_properties(0)
+        if getattr(props, "is_integrated_gpu", False) or (self.gpu_mem and self.gpu_mem <= 4):
             return (1, 5, 30, 32)
         return (1, 6, 38, 41)
