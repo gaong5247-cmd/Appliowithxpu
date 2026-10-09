@@ -78,3 +78,17 @@ finally:
         sys.modules["torch"] = orig
 
 print("PASS: source presence, AST, GPU-only runtime guards, XPU references and dependency pinning.")
+
+# Active neural-compute source must not reach CUDA. AMD ZLUDA is retained only
+# as unimported upstream reference code; it is not part of the XPU runtime.
+import re
+for root in ('rvc', 'tabs'):
+    for src in Path(root).rglob('*.py'):
+        if src.as_posix() == 'rvc/lib/zluda.py':
+            continue
+        for number, line in enumerate(src.read_text(encoding='utf-8').splitlines(), 1):
+            if line.lstrip().startswith('#'):
+                continue
+            if re.search(r'\btorch\.cuda\b|\bCUDAExecutionProvider\b|\.cuda\s*\(', line):
+                raise AssertionError(f'Active CUDA expression {src}:{number}: {line.strip()}')
+print('PASS: scanned active Python files for CUDA APIs.')
