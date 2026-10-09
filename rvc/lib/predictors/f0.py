@@ -192,10 +192,12 @@ class Swift:
         self.sample_rate = sample_rate
         self.hop_size = hop_size
         self.model = SwiftF0()
-        if "cuda" in str(device).lower():
+        if str(device).startswith("xpu"):
+            # Swift is an ONNX model, so Intel DirectML EP is needed, not PyTorch XPU.
             available = onnxruntime.get_available_providers()
-            providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in available]
-            self.model.session.set_providers(providers)
+            if "DmlExecutionProvider" not in available:
+                raise RuntimeError("Swift F0 needs onnxruntime-directml. Use RMVPE for PyTorch XPU-only F0.")
+            self.model.session.set_providers(["DmlExecutionProvider"])
 
     @staticmethod
     def _repair_subharmonics(pitch, confidence, frame_period=0.016):
