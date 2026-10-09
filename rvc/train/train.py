@@ -77,26 +77,27 @@ if vocoder == "RefineGAN":
 
 current_dir = os.getcwd()
 
-try:
-    with open(
-        os.path.join(current_dir, "assets", "config.json"),
-        "r",
-        encoding="utf-8",
-    ) as f:
-        config = json.load(f)
-        precision = config["precision"]
-        if (
-            precision == "bf16"
-            and hasattr(torch, "xpu")
-            and torch.xpu.is_available()
-        ):
-            train_dtype = torch.bfloat16
-        elif precision == "fp16" and hasattr(torch, "xpu") and torch.xpu.is_available():
-            train_dtype = torch.float16
-        else:
-            train_dtype = torch.float32
-except (FileNotFoundError, json.JSONDecodeError, KeyError):
-    train_dtype = torch.float32
+# Direct CLI / single-epoch diagnostics must honor the same precision as
+# app.py even when the GUI has not yet created assets/config.json.
+# A corrupt existing user config should raise, NOT silently turn off BF16.
+settings_path = os.path.join(current_dir, "assets", "config.json")
+if not os.path.isfile(settings_path):
+    settings_path = os.path.join(current_dir, "assets", "config_template.json")
+with open(settings_path, "r", encoding="utf-8") as settings_file:
+    runtime_settings = json.load(settings_file)
+precision = os.environ.get(
+    "APPLIO_XPU_PRECISION", runtime_settings.get("precision", "bf16")
+).strip().lower()
+if precision not in ("fp32", "fp16", "bf16"):
+    raise ValueError(
+        f"Invalid XPU precision {precision!r}; expected fp32, fp16, or bf16"
+    )
+train_dtype = {
+    "fp32": torch.float32,
+    "fp16": torch.float16,
+    "bf16": torch.bfloat16,
+}[precision]
+print(f"[XPU TRAIN] selected precision={precision} (source={settings_path})")
 
 experiment_dir = os.path.join(current_dir, "logs", model_name)
 config_save_path = os.path.join(experiment_dir, "config.json")
