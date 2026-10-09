@@ -630,6 +630,7 @@ def train_and_evaluate(
         data_iterator = enumerate(train_loader)
 
     epoch_recorder = EpochRecorder()
+    epoch_started_at = ttime()
     # Gradient norm is diagnostic only, not needed for optimizer correctness.
     # Sampling avoids dozens of reduction kernels per RVC training batch.
     grad_log_interval = max(1, int(os.getenv("APPLIO_XPU_GRAD_LOG_INTERVAL", "10")))
@@ -798,6 +799,15 @@ def train_and_evaluate(
             pbar.update(1)
         # end of batch train
     # end of tqdm
+    # One synchronization at epoch end gives accurate real accelerator timing.
+    torch.xpu.synchronize()
+    epoch_seconds = max(ttime() - epoch_started_at, 1e-6)
+    xpu_steps_per_second = len(train_loader) / epoch_seconds
+    print(
+        f"[XPU BENCH] epoch={epoch} | seconds={epoch_seconds:.2f} "
+        f"| steps_per_second={xpu_steps_per_second:.3f} "
+        f"| precision={train_dtype}"
+    )
     # Avoid torch.xpu.empty_cache() each epoch: cache eviction stalls kernels.
 
     # Materialize best-loss metadata only ONCE per epoch.
