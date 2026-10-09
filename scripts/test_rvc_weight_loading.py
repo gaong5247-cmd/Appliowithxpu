@@ -29,8 +29,8 @@ def main():
             .replace("parametrizations.weight.original1", "weight_v"): t.clone()
         for name, t in params.items()
     }
-    assert any(k.endswith(".weight_g") for k in legacy)
-    assert any(k.endswith(".weight_v") for k in legacy)
+    assert "weight_g" in legacy and "weight_v" in legacy
+    assert "parametrizations.weight.original0" not in legacy
 
     target = make_model()
     load_rvc_voice_weights(target, legacy)
