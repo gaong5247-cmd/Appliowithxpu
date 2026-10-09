@@ -37,6 +37,7 @@ from rvc.train.utils import (
 )
 
 from rvc.configs.config import require_xpu
+from rvc.train.process.worker_status import wait_for_training_workers
 from rvc.lib.algorithm import commons
 from rvc.train.process.extract_model import extract_model
 
@@ -223,25 +224,7 @@ def main():
                 pid_data["process_pids"].append(subproc.pid)
             json.dump(pid_data, pid_file, indent=4)
 
-        failures = []
-        for child in children:
-            child.join()
-            if child.exitcode != 0:
-                failures.append((child.pid, child.exitcode))
-
-        # Keep the training metadata clean even when a worker fails.
-        with open(config_save_path, "r", encoding="utf-8") as pid_file:
-            metadata = json.load(pid_file)
-        metadata.pop("process_pids", None)
-        with open(config_save_path, "w", encoding="utf-8") as pid_file:
-            json.dump(metadata, pid_file, indent=4)
-
-        if failures:
-            raise RuntimeError(
-                "XPU training crashed in subprocess(es): "
-                + ", ".join(f"pid={pid} exitcode={code}" for pid, code in failures)
-                + ". See the actual traceback above; training is NOT complete."
-            )
+        wait_for_training_workers(children, config_save_path)
 
     if cleanup:
         print("Removing files from the prior training attempt...")
