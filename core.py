@@ -1,5 +1,6 @@
 import json
 import os
+import glob
 import subprocess
 import sys
 
@@ -595,9 +596,29 @@ def run_train_script(
     ]
     result = subprocess.run(command)
     if result.returncode != 0:
-        return f"Training failed for model {model_name}. Please check the console logs for more details."
+        return (
+            f"Training failed for model {model_name} (exit code {result.returncode}). "
+            "Read the first Python/XPU traceback in the console. Existing logs are preserved."
+        )
 
-    run_index_script(model_name, index_algorithm)
+    # A zero process exit alone is not proof that G, D, and export were saved.
+    experiment_dir = os.path.join(logs_path, model_name)
+    g_weights = glob.glob(os.path.join(experiment_dir, "G_*.pth"))
+    d_weights = glob.glob(os.path.join(experiment_dir, "D_*.pth"))
+    exported = glob.glob(os.path.join(experiment_dir, f"{model_name}_*e_*s.pth"))
+    if not (g_weights and d_weights and exported):
+        return (
+            f"Training for {model_name} returned exit=0, but required weights are missing: "
+            f"G={bool(g_weights)}, D={bool(d_weights)}, exported={bool(exported)}. "
+            "Not reporting success until checkpoints can be verified."
+        )
+
+    index_result = run_index_script(model_name, index_algorithm)
+    if "failed" in index_result.lower():
+        return (
+            f"RVC training for {model_name} completed with saved G/D/export weights, "
+            f"but index building failed: {index_result}"
+        )
 
     if shutdown_check:
         os_name, shutdown_datetime = shutdown_after_training()
