@@ -178,7 +178,7 @@ def main():
             print(
                 f"Error: Pretrained model sample rate ({config.data.sample_rate} Hz) does not match dataset audio sample rate ({sr} Hz)."
             )
-            os._exit(1)
+            raise RuntimeError("Audio sample rate does not match the experiment configuration")
     else:
         print("No wav file found.")
 
@@ -223,8 +223,25 @@ def main():
                 pid_data["process_pids"].append(subproc.pid)
             json.dump(pid_data, pid_file, indent=4)
 
-        for i in range(n_gpus):
-            children[i].join()
+        failures = []
+        for child in children:
+            child.join()
+            if child.exitcode != 0:
+                failures.append((child.pid, child.exitcode))
+
+        # Keep the training metadata clean even when a worker fails.
+        with open(config_save_path, "r", encoding="utf-8") as pid_file:
+            metadata = json.load(pid_file)
+        metadata.pop("process_pids", None)
+        with open(config_save_path, "w", encoding="utf-8") as pid_file:
+            json.dump(metadata, pid_file, indent=4)
+
+        if failures:
+            raise RuntimeError(
+                "XPU training crashed in subprocess(es): "
+                + ", ".join(f"pid={pid} exitcode={code}" for pid, code in failures)
+                + ". See the actual traceback above; training is NOT complete."
+            )
 
     if cleanup:
         print("Removing files from the prior training attempt...")
@@ -327,10 +344,9 @@ def run(
 
     # Validations
     if len(train_loader) < 3:
-        print(
-            "Not enough data present in the training set. Perhaps you forgot to slice the audio files in preprocess?"
+        raise RuntimeError(
+            "Training dataset has fewer than 3 batches; add more usable audio clips."
         )
-        os._exit(2333333)
 
     # defaults
     embedder_name = "contentvec"
@@ -956,7 +972,7 @@ def train_and_evaluate(
             with open(pid_file_path, "w") as pid_file:
                 pid_data.pop("process_pids", None)
                 json.dump(pid_data, pid_file, indent=4)
-            os._exit(2333333)
+            return  # Normal completion: preserve a zero exit code for the parent process.
 
         # Reuse the XPU caching allocator across epochs.
 
