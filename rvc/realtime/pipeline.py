@@ -121,8 +121,10 @@ class Realtime_Pipeline:
         self.resamplers = {}
         self.f0_model = self.setup_f0(self.f0_method)
         self.dtype = vc.dtype
-        # Reuse scalar tensors to avoid per-block allocations.
-        self._rate_tensor = torch.zeros(1, device=self.device, dtype=torch.float32)
+        # The vocoder's infer() calls rate.item() to compute a Python slice.
+        # Keeping this one *control scalar* on host avoids an XPU->CPU barrier
+        # and does not move model activations or neural inference to CPU.
+        self._rate_tensor = torch.zeros(1, dtype=torch.float32)
         self._p_len_tensor = torch.zeros(1, device=self.device, dtype=torch.int64)
 
     def autotune_f0(self, f0, f0_autotune_strength):
