@@ -385,17 +385,27 @@ def run(
         print("Using AdamW optimizer")
         optimizer = torch.optim.AdamW
 
+    # PyTorch's AdamW defaults to foreach on CUDA, not Intel XPU.
+    # Enabling it can reduce Python/kernel-launch overhead but consumes
+    # additional peak memory. Benchmark first on the real Arc graphics.
+    adamw_extra = {}
+    if optimizer is torch.optim.AdamW:
+        if os.getenv("APPLIO_XPU_ADAMW_FOREACH", "0") == "1":
+            adamw_extra["foreach"] = True
+            print("[XPU OPT] Using opt-in AdamW foreach kernels")
     optim_g = optimizer(
         net_g.parameters(),
         config.train.learning_rate * g_lr_coeff,
         betas=config.train.betas,
         eps=config.train.eps,
+        **adamw_extra,
     )
     optim_d = optimizer(
         net_d.parameters(),
         config.train.learning_rate * d_lr_coeff,
         betas=config.train.betas,
         eps=config.train.eps,
+        **adamw_extra,
     )
     if multiscale_mel_loss:
         fn_mel_loss = MultiScaleMelSpectrogramLoss(sample_rate=config.data.sample_rate)
